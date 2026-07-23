@@ -65,7 +65,10 @@ function dashboard() {
   };
 }
 
-const clientScript = fs.readFileSync(path.join(__dirname, 'public', 'app.js'), 'utf8');
+const clientScript = fs.readFileSync(
+  path.join(__dirname, 'frontend', 'public', 'app.js'),
+  'utf8'
+);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);

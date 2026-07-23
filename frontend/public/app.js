@@ -28,6 +28,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    installCyberScene();
     refresh().catch(console.error);
     const search = document.querySelector('input[placeholder^="Search"]');
     search?.addEventListener('input', async event => {
@@ -48,6 +49,55 @@
     });
     addOperationsViews();
   });
+
+  function installCyberScene() {
+    const style = document.createElement('style');
+    style.textContent = `
+      #guardianx-cyber-layer { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: .34; mix-blend-mode: screen; }
+      .glass-panel { transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease; }
+      .glass-panel:hover { transform: translateY(-3px) perspective(900px) rotateX(1deg); border-color: rgba(173,198,255,.28); box-shadow: 0 18px 45px rgba(0,90,194,.13); }
+      main, aside, header { isolation: isolate; }
+      @media (prefers-reduced-motion: reduce) { #guardianx-cyber-layer { display: none; } .glass-panel { transition: none; } .glass-panel:hover { transform: none; } }
+    `;
+    document.head.appendChild(style);
+
+    const canvas = document.createElement('canvas');
+    canvas.id = 'guardianx-cyber-layer';
+    canvas.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(canvas);
+    const context = canvas.getContext('2d');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const particles = Array.from({ length: 46 }, () => ({ x: Math.random(), y: Math.random(), z: .2 + Math.random() * .8, speed: .00015 + Math.random() * .00055 }));
+
+    function size() { canvas.width = window.innerWidth * devicePixelRatio; canvas.height = window.innerHeight * devicePixelRatio; context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); }
+    function draw(time) {
+      const width = window.innerWidth, height = window.innerHeight;
+      context.clearRect(0, 0, width, height);
+      const horizon = height * .62;
+      context.lineWidth = 1;
+      for (let i = 1; i < 18; i++) {
+        const y = horizon + ((i / 18) ** 2) * height * .48;
+        context.strokeStyle = `rgba(70, 155, 255, ${.04 + i * .006})`;
+        context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke();
+      }
+      for (let x = -10; x <= 10; x++) {
+        context.strokeStyle = 'rgba(70, 155, 255, .13)';
+        context.beginPath(); context.moveTo(width / 2, horizon); context.lineTo(width / 2 + x * width * .16, height); context.stroke();
+      }
+      particles.forEach(particle => {
+        particle.y -= particle.speed * (reducedMotion ? 0 : 1);
+        if (particle.y < 0) { particle.y = 1; particle.x = Math.random(); }
+        const px = particle.x * width, py = particle.y * height;
+        const radius = 1 + particle.z * 2;
+        context.fillStyle = particle.z > .72 ? 'rgba(173,198,255,.8)' : 'rgba(77,142,255,.45)';
+        context.beginPath(); context.arc(px, py, radius, 0, Math.PI * 2); context.fill();
+      });
+      const scanY = ((time * .00008) % 1) * height;
+      context.fillStyle = 'rgba(85, 170, 255, .045)'; context.fillRect(0, scanY, width, 2);
+      if (!reducedMotion) requestAnimationFrame(draw);
+    }
+    size(); window.addEventListener('resize', size); requestAnimationFrame(draw);
+  }
 
   function addOperationsViews() {
     const main = document.querySelector('main');

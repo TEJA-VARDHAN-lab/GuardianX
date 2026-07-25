@@ -28,6 +28,11 @@ async def generate_frames():
         return
 
     logger.info("🚀 Camera linked successfully. Streaming active channels...")
+    
+    logger.info(
+        "📷 STREAM USING CAMERA SOURCE: %s",
+        CAMERA_SOURCE
+    )
 
     try:
         while True:

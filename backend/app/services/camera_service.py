@@ -12,15 +12,26 @@ class CameraService:
         return CameraRepository.get_all(db)
 
     @staticmethod
-    def create_camera(db: Session, data: CameraCreate):
-
+    def create_camera(
+        db: Session,
+        data: CameraCreate,
+    ):
         camera = Camera(
             name=data.name,
-            stream_url=data.stream_url,
             location=data.location,
+            location_name=data.location_name,
             latitude=data.latitude,
             longitude=data.longitude,
-            status="online",
+            source=data.source,
+            status="offline",
+            ai_enabled=True,
         )
 
         return CameraRepository.create(db, camera)
+
+    @staticmethod
+    def delete_camera(
+        db: Session,
+        camera_id: int,
+    ):
+        return CameraRepository.delete(db, camera_id)

@@ -1,12 +1,14 @@
+import asyncio
 import logging
 import time
-import asyncio
 from typing import Optional
 
-from app.models.incident import Incident
-from app.services.database_service import DatabaseService
 from app.api.routes.ws import manager
+from app.models.incident import Incident
+from app.repositories.camera_repository import CameraRepository
+from app.services.database_service import DatabaseService
 from app.services.snapshot_service import SnapshotService
+from app.services.telegram_service import TelegramService
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -23,7 +25,7 @@ class IncidentManager:
         incident_type: str,
         severity: str,
         confidence: float,
-        frame=None,  # 🚀 Added optional default block support
+        frame=None,
     ) -> Optional[Incident]:
         """
         Evaluates cooling thresholds, processes visual frames, records structural events
@@ -44,7 +46,6 @@ class IncidentManager:
             # 2. Extract visual frame context using the internal service if provided
             snapshot_path = None
             if frame is not None:
-                # 🧠 Fix: Moved the snapshot execution safely inside the method scope
                 snapshot_path = SnapshotService.save(frame, incident_type)
 
             # 3. Instantiate the database model with structural metadata fields
@@ -67,8 +68,35 @@ class IncidentManager:
                 incident.incident_type,
                 incident.camera_id,
             )
-            
-            # 4. Prepare the real-time event dispatch payload
+
+            # 4. Send emergency Telegram alert
+            try:
+                camera = CameraRepository.get_by_id(
+                    db,
+                    incident.camera_id,
+                )
+
+                if camera:
+                    TelegramService.send_alert(
+                        incident,
+                        camera,
+                    )
+                    logger.info(
+                        "📲 Telegram alert sent for incident #%s",
+                        incident.id,
+                    )
+                else:
+                    logger.warning(
+                        "⚠️ Camera details not found. Telegram alert skipped."
+                    )
+
+            except Exception as telegram_error:
+                logger.exception(
+                    "❌ Telegram alert failed: %s",
+                    telegram_error,
+                )
+
+            # 5. Prepare the real-time event dispatch payload
             payload = {
                 "event": "incident.created",
                 "incident": {
@@ -82,27 +110,34 @@ class IncidentManager:
                 },
             }
 
-            # 5. Thread-Safe WebSocket Broadcast Dispatch
+            # 6. Thread-Safe WebSocket Broadcast Dispatch
             try:
                 coro = manager.broadcast_json(payload)
-                
+
                 try:
-                    # If executing on the main asynchronous event thread, register immediately
+                    # Main asynchronous event thread check
                     loop = asyncio.get_running_loop()
                     loop.create_task(coro)
-                    logger.info("📡 Incident broadcast scheduled on current event loop.")
+                    logger.info(
+                        "📡 Incident broadcast scheduled on current event loop."
+                    )
                 except RuntimeError:
-                    # Executing inside a synchronous background worker thread pool (e.g., AnyIO worker).
-                    # Safely schedule the coroutine onto the running main application event loop thread.
+                    # Background thread pool execution (e.g., AnyIO worker)
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
                         asyncio.run_coroutine_threadsafe(coro, loop)
-                        logger.info("📡 Incident broadcast dispatched thread-safely to main event loop.")
+                        logger.info(
+                            "📡 Incident broadcast dispatched thread-safely to main event loop."
+                        )
                     else:
-                        logger.warning("❌ Active event loop not found. WebSocket broadcast dropped.")
-                        
+                        logger.warning(
+                            "❌ Active event loop not found. WebSocket broadcast dropped."
+                        )
+
             except Exception as ws_err:
-                logger.error("❌ WebSocket broadcast dispatch failed: %s", ws_err)
+                logger.error(
+                    "❌ WebSocket broadcast dispatch failed: %s", ws_err
+                )
 
             return incident
 

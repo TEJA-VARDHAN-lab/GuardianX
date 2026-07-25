@@ -1,21 +1,28 @@
-from sqlalchemy import Column, Integer, Float, String
-
+from sqlalchemy import Boolean, Column, Float, Integer, String
 from app.db.database import Base
 
 
 class Camera(Base):
     __tablename__ = "cameras"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
 
     name = Column(String(100), nullable=False)
+    location = Column(String(200), nullable=False)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    location_name = Column(String(150), nullable=False)
 
-    stream_url = Column(String(500))
+    source = Column(String(500), nullable=False)
 
-    location = Column(String(200))
+    status = Column(
+        String(20),
+        default="offline",
+        nullable=False,
+    )
 
-    latitude = Column(Float)
-
-    longitude = Column(Float)
-
-    status = Column(String(30), default="offline")
+    ai_enabled = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )

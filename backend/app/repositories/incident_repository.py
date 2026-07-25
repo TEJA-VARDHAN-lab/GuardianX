@@ -6,8 +6,15 @@ class IncidentRepository:
 
     @staticmethod
     def get_all(db: Session):
-        # Order by id descending so the newest alerts appear at the top of the feed
         return db.query(Incident).order_by(Incident.id.desc()).all()
+
+    @staticmethod
+    def get_by_id(db: Session, incident_id: int):
+        return (
+            db.query(Incident)
+            .filter(Incident.id == incident_id)
+            .first()
+        )
 
     @staticmethod
     def create(db: Session, incident: Incident):
@@ -15,7 +22,7 @@ class IncidentRepository:
         db.commit()
         db.refresh(incident)
         return incident
-        
+
     @staticmethod
     def update_status(db: Session, incident_id: int, status: str):
         incident = (

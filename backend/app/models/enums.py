@@ -4,6 +4,8 @@ from enum import Enum
 class IncidentStatus(str, Enum):
     DETECTED = "detected"
     VERIFIED = "verified"
+    RESPONDING = "responding"
+    CONTAINED = "contained"
     RESOLVED = "resolved"
 
 

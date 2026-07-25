@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.incident import IncidentCreate, IncidentResponse
 from app.services.incident_service import IncidentService
+from app.services.incident_workflow import can_transition
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["Incidents"])
 
 
-# Quick schema to enforce validation on incoming patch payload structures
 class StatusUpdate(BaseModel):
     status: str
 
@@ -30,14 +30,12 @@ async def create_incident(
 @router.patch("/{incident_id}/status", response_model=IncidentResponse)
 async def update_incident_status(
     incident_id: int,
-    payload: StatusUpdate,  # Captures validation values natively from JSON body payload
+    payload: StatusUpdate,  # Validates JSON body: {"status": "resolved"}
     db: Session = Depends(get_db),
 ):
-    # Extracts the string from our data transfer validation layer
-    incident = IncidentService.update_status(
+    incident = IncidentService.get_incident(
         db,
         incident_id,
-        payload.status,
     )
 
     if not incident:
@@ -46,4 +44,22 @@ async def update_incident_status(
             detail="Incident record not found in system database.",
         )
 
-    return incident
+    if not can_transition(
+        incident.status,
+        payload.status,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid incident transition: "
+                f"{incident.status} → {payload.status}"
+            ),
+        )
+
+    updated_incident = await IncidentService.update_status(
+        db,
+        incident_id,
+        payload.status,
+    )
+
+    return updated_incident

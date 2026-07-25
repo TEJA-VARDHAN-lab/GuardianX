@@ -22,7 +22,7 @@ class Incident(Base):
 
     confidence = Column(Float)
 
-    status = Column(String(30), default="detected")
+    status = Column(String(30), default="detected", nullable=False)
 
     snapshot = Column(String(500))
 

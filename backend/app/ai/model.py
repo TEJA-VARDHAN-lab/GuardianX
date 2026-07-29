@@ -17,7 +17,7 @@ def get_model():
     if _model_instance is None:
         logger.info("🧠 Loading AI Object Detection engine into memory...")
         # Replace 'yolov8n.pt' with your specific architecture choice if different
-        _model_instance = YOLO("yolov8n.pt")
+        _model_instance = YOLO("models/yolo11s.pt")
         logger.info("✅ AI Engine loaded successfully.")
         
     return _model_instance

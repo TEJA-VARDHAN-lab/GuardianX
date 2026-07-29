@@ -1,18 +1,18 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     APP_NAME: str = "GuardianX"
     API_VERSION: str = "v1"
+    DATABASE_URL: str = "sqlite:///guardianx.db"
     DEBUG: bool = True
-    SECRET_KEY: str
-    DATABASE_URL: str
+    SECRET_KEY: str = "guardianx-change-this-secret"
 
-    # Telegram Notification Settings
-    TELEGRAM_BOT_TOKEN: str = "8717488605:AAHw0ns5qPj0hdhkGDDoFcqxQc8nuDDOXDw"
-    TELEGRAM_CHAT_ID: str = "7965594981"
+    TELEGRAM_BOT_TOKEN: str
+    TELEGRAM_CHAT_ID: str
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
 
 settings = Settings()

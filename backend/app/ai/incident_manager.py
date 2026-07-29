@@ -3,19 +3,33 @@ import logging
 import time
 from typing import Optional
 
-from app.api.routes.ws import manager
+from app.models.camera import Camera
 from app.models.incident import Incident
 from app.repositories.camera_repository import CameraRepository
+from app.services.alert_message_service import AlertMessageService
 from app.services.database_service import DatabaseService
+from app.services.emergency_router import EmergencyRouter
+from app.services.notification_dispatcher import NotificationDispatcher
 from app.services.snapshot_service import SnapshotService
 from app.services.telegram_service import TelegramService
+from app.services.websocket_manager import manager
 
 logger = logging.getLogger("uvicorn.error")
 
 
+def run_async_coro(coro):
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(coro)
+    except RuntimeError:
+        try:
+            asyncio.run(coro)
+        except Exception as err:
+            logger.error("❌ Failed to run async task in background thread: %s", err)
+
+
 class IncidentManager:
     COOLDOWN_SECONDS = 10
-    # Class tracking cache container mapping (camera_id, incident_type) -> timestamp
     _last_created: dict[tuple[int, str], float] = {}
 
     @classmethod
@@ -27,15 +41,10 @@ class IncidentManager:
         confidence: float,
         frame=None,
     ) -> Optional[Incident]:
-        """
-        Evaluates cooling thresholds, processes visual frames, records structural events
-        to database storage, and alerts frontend clients over active websocket streams.
-        """
         now = time.time()
         cooldown_key = (camera_id, incident_type)
         last = cls._last_created.get(cooldown_key)
 
-        # 1. Enforce regional cooling threshold gates
         if last and (now - last) < cls.COOLDOWN_SECONDS:
             return None
 
@@ -43,12 +52,10 @@ class IncidentManager:
         db = DatabaseService.session()
 
         try:
-            # 2. Extract visual frame context using the internal service if provided
             snapshot_path = None
             if frame is not None:
                 snapshot_path = SnapshotService.save(frame, incident_type)
 
-            # 3. Instantiate the database model with structural metadata fields
             incident = Incident(
                 camera_id=camera_id,
                 incident_type=incident_type,
@@ -69,34 +76,49 @@ class IncidentManager:
                 incident.camera_id,
             )
 
-            # 4. Send emergency Telegram alert
+            departments = []
             try:
-                camera = CameraRepository.get_by_id(
-                    db,
-                    incident.camera_id,
-                )
+                departments = EmergencyRouter.get_departments(incident.incident_type)
+                if isinstance(departments, str):
+                    departments = [departments]
+
+                logger.info("🚑 Dispatch Required: %s", departments)
+
+                message = AlertMessageService.generate(incident)
+
+                for department in departments:
+                    try:
+                        NotificationDispatcher.send(department, message, incident.snapshot)
+                        logger.info("📢 Notification sent to department: %s", department)
+                    except Exception as notify_err:
+                        logger.error(
+                            "❌ Failed to dispatch notification to %s: %s",
+                            department,
+                            notify_err,
+                        )
+            except Exception as router_err:
+                logger.error("❌ Emergency router error: %s", router_err)
+
+            try:
+                camera = None
+                if hasattr(CameraRepository, "get_by_id"):
+                    camera = CameraRepository.get_by_id(db, incident.camera_id)
+                elif hasattr(CameraRepository, "get"):
+                    camera = CameraRepository.get(db, incident.camera_id)
+                else:
+                    camera = db.query(Camera).filter(Camera.id == incident.camera_id).first()
 
                 if camera:
-                    TelegramService.send_alert(
-                        incident,
-                        camera,
-                    )
-                    logger.info(
-                        "📲 Telegram alert sent for incident #%s",
-                        incident.id,
-                    )
+                    run_async_coro(TelegramService.send_alert(incident, camera))
+                    logger.info("📲 Telegram alert dispatched for incident #%s", incident.id)
                 else:
                     logger.warning(
-                        "⚠️ Camera details not found. Telegram alert skipped."
+                        "⚠️ Camera #%s not found in database. Telegram alert skipped.",
+                        incident.camera_id,
                     )
-
             except Exception as telegram_error:
-                logger.exception(
-                    "❌ Telegram alert failed: %s",
-                    telegram_error,
-                )
+                logger.exception("❌ Telegram alert failed: %s", telegram_error)
 
-            # 5. Prepare the real-time event dispatch payload
             payload = {
                 "event": "incident.created",
                 "incident": {
@@ -107,43 +129,21 @@ class IncidentManager:
                     "confidence": incident.confidence,
                     "status": incident.status,
                     "snapshot": incident.snapshot,
+                    "departments": departments,
                 },
             }
 
-            # 6. Thread-Safe WebSocket Broadcast Dispatch
             try:
-                coro = manager.broadcast_json(payload)
-
-                try:
-                    # Main asynchronous event thread check
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(coro)
-                    logger.info(
-                        "📡 Incident broadcast scheduled on current event loop."
-                    )
-                except RuntimeError:
-                    # Background thread pool execution (e.g., AnyIO worker)
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.run_coroutine_threadsafe(coro, loop)
-                        logger.info(
-                            "📡 Incident broadcast dispatched thread-safely to main event loop."
-                        )
-                    else:
-                        logger.warning(
-                            "❌ Active event loop not found. WebSocket broadcast dropped."
-                        )
-
+                run_async_coro(manager.broadcast_json(payload))
+                logger.info("📡 WebSocket broadcast scheduled safely.")
             except Exception as ws_err:
-                logger.error(
-                    "❌ WebSocket broadcast dispatch failed: %s", ws_err
-                )
+                logger.error("❌ WebSocket broadcast dispatch failed: %s", ws_err)
 
             return incident
 
         except Exception as db_err:
             db.rollback()
             logger.error("❌ Database save transaction failed: %s", db_err)
-            raise db_err
+            raise
         finally:
             db.close()

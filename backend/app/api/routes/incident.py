@@ -30,36 +30,18 @@ async def create_incident(
 @router.patch("/{incident_id}/status", response_model=IncidentResponse)
 async def update_incident_status(
     incident_id: int,
-    payload: StatusUpdate,  # Validates JSON body: {"status": "resolved"}
+    payload: StatusUpdate,
     db: Session = Depends(get_db),
 ):
-    incident = IncidentService.get_incident(
-        db,
-        incident_id,
-    )
+    incident = IncidentService.get_incident(db, incident_id)
 
     if not incident:
-        raise HTTPException(
-            status_code=404,
-            detail="Incident record not found in system database.",
-        )
+        raise HTTPException(status_code=404, detail="Incident record not found in system database.")
 
-    if not can_transition(
-        incident.status,
-        payload.status,
-    ):
+    if not can_transition(incident.status, payload.status):
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Invalid incident transition: "
-                f"{incident.status} → {payload.status}"
-            ),
+            detail=f"Invalid incident transition: {incident.status} → {payload.status}",
         )
 
-    updated_incident = await IncidentService.update_status(
-        db,
-        incident_id,
-        payload.status,
-    )
-
-    return updated_incident
+    return await IncidentService.update_status(db, incident_id, payload.status)

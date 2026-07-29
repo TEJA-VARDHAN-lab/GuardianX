@@ -1,3 +1,4 @@
+import logging
 from sqlalchemy.orm import Session
 
 from app.models.incident import Incident
@@ -7,9 +8,10 @@ from app.schemas.incident import IncidentCreate
 from app.services.telegram_service import TelegramService
 from app.websocket.manager import manager
 
+logger = logging.getLogger("uvicorn.error")
+
 
 class IncidentService:
-
     @staticmethod
     def get_incident(db: Session, incident_id: int):
         return IncidentRepository.get_by_id(db, incident_id)
@@ -20,20 +22,19 @@ class IncidentService:
 
     @staticmethod
     async def create_incident(db: Session, data: IncidentCreate):
-        # 1. Save incident to database
+        snapshot_val = getattr(data, "snapshot", None)
+
         incident = Incident(
             camera_id=data.camera_id,
             incident_type=data.incident_type,
             severity=data.severity,
             confidence=data.confidence,
             status="detected",
+            snapshot=snapshot_val,
         )
         incident = IncidentRepository.create(db, incident)
-
-        # 2. Fetch associated camera details for alert metadata
         camera = CameraRepository.get_by_id(db, incident.camera_id)
 
-        # 3. Broadcast real-time update to web dashboard via WebSockets
         await manager.broadcast_json(
             {
                 "event": "incident.created",
@@ -44,24 +45,24 @@ class IncidentService:
                     "severity": incident.severity,
                     "confidence": incident.confidence,
                     "status": incident.status,
-                    "created_at": incident.created_at.isoformat()
-                    if incident.created_at
-                    else None,
+                    "created_at": incident.created_at.isoformat() if getattr(incident, "created_at", None) else None,
                 },
             }
         )
 
-        # 4. 🚨 Send Telegram push notification
         if camera:
-            print("🚨 CALLING TELEGRAM ALERT")
-            TelegramService.send_alert(incident, camera)
-
-        # 5. 📷 Send snapshot photo to Telegram if available
-        if hasattr(incident, "snapshot") and incident.snapshot:
-            TelegramService.send_photo(
-                photo=incident.snapshot,
-                caption=f"📷 Incident #{incident.id} Snapshot",
-            )
+            try:
+                message = (
+                    f"🚨 Incident #{incident.id}\n"
+                    f"Type: {incident.incident_type}\n"
+                    f"Severity: {incident.severity}\n"
+                    f"Confidence: {incident.confidence}"
+                )
+                TelegramService.send_alert(message, image_path=snapshot_val)
+            except Exception as e:
+                logger.error("❌ Telegram notification error on create: %s", e)
+        else:
+            logger.warning("⚠️ Camera #%s not found. Telegram skipped.", incident.camera_id)
 
         return incident
 
@@ -79,5 +80,16 @@ class IncidentService:
                     },
                 }
             )
+
+            try:
+                camera = CameraRepository.get_by_id(db, incident.camera_id)
+                if camera:
+                    message = (
+                        f"🚨 Incident #{incident.id} updated\n"
+                        f"New status: {status}"
+                    )
+                    TelegramService.send_alert(message)
+            except Exception as e:
+                logger.error("❌ Telegram notification error on update: %s", e)
 
         return incident
